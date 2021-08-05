@@ -63,6 +63,11 @@ def simulate(model, t, y0s):
         ys.append(model(ys[-1]))
     return torch.swapaxes(torch.stack(ys), 0, 1)
 
+def simulate_integr(model, t, y0s, step_size):
+    ys = [y0s + step_size * model(y0s)]
+    for tn in range(t - 1):
+        ys.append(ys[-1] + step_size * model(ys[-1]))
+    return torch.swapaxes(torch.stack(ys), 0, 1)
 
 if __name__ == '__main__':
     """
@@ -95,7 +100,8 @@ if __name__ == '__main__':
     opt = torch.optim.Adam(model.parameters())
     progress = tqdm(range(epochs), 'Training')
     for _ in progress:
-        y_pred = simulate(model, n_training, x)
+        #y_pred = simulate(model, n_training, x)
+        y_pred = simulate_integr(model, n_training, x, step_size)
 
         loss = F.mse_loss(y_pred, y)
         loss.backward()
@@ -113,11 +119,12 @@ if __name__ == '__main__':
     step_size = 0.01
     x, y = generate_data(y0s, step_size, n_test)
 
-    y_pred = simulate(model, n_test, x)
+    #y_pred = simulate(model, n_test, x)
+    y_pred = simulate_integr(model, n_test, x, step_size)
     loss = F.mse_loss(y_pred, y)
     print(f'Pred loss = {loss}')
 
     plt.plot(y_pred.detach().numpy()[:, :, 0].T, y_pred.detach().numpy()[:, :, 1].T, color='r')
     plt.plot(y.numpy()[:, :, 0].T, y.numpy()[:, :, 1].T, color='b')
-    plt.scatter(y0s[:,0], y0s[:,1])
+    plt.scatter(y0s[:, 0], y0s[:, 1])
     plt.show()
