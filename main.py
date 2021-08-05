@@ -19,7 +19,7 @@ def grid_init_samples(domain, n_trajectories: int):
     return np.concatenate((xx.flatten()[..., np.newaxis], yy.flatten()[..., np.newaxis]), axis=1)
 
 
-def random_init_sample(domain, n_trajectories: int):
+def random_init_samples(domain, n_trajectories: int):
     """
     :param domain:
         theta min / max
@@ -66,7 +66,7 @@ if __name__ == '__main__':
     """
     y0s_domain = [[-1., 1.], [-1., 1.]]
     grid_init_samples(y0s_domain, 10)
-    y0s = torch.tensor(random_init_sample(y0s_domain, 1000))
+    y0s = torch.tensor(random_init_samples(y0s_domain, 1000))
 
     """
     Data model
@@ -117,9 +117,9 @@ if __name__ == '__main__':
     print(f'Pred loss = {loss}')
 
     """
+    Plot results
     
     """
-
     plt.plot(y_pred.detach().numpy()[:, :, 0].T, y_pred.detach().numpy()[:, :, 1].T, color='r')
     plt.plot(y.numpy()[:, :, 0].T, y.numpy()[:, :, 1].T, color='b')
     plt.scatter(y0s[:, 0], y0s[:, 1])
