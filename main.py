@@ -11,14 +11,15 @@ g = torch.tensor(9.81)
 l = torch.tensor(1.)
 
 
-def grid_init_samples(domain, n_trajectories):
+def grid_init_samples(domain, n_trajectories: int):
     x = np.linspace(domain[0][0], domain[0][1], n_trajectories)
     y = np.linspace(domain[1][0], domain[1][1], n_trajectories)
 
     xx, yy = np.meshgrid(x, y)
+    return np.concatenate((xx.flatten()[..., np.newaxis], yy.flatten()[..., np.newaxis]), axis=1)
 
 
-def random_init_sample(domain, n_trajectories):
+def random_init_sample(domain, n_trajectories: int):
     """
     :param domain:
         theta min / max
@@ -30,7 +31,7 @@ def random_init_sample(domain, n_trajectories):
     return values(n_trajectories)
 
 
-def generate_data(y0s: torch.Tensor, step_size, n) -> (torch.Tensor, torch.Tensor):
+def generate_data(y0s: torch.Tensor, step_size: float, n: int) -> (torch.Tensor, torch.Tensor):
     """
     :param y0s:
         trajectories * states
@@ -64,11 +65,18 @@ def simulate(model, t, y0s):
 
 
 if __name__ == '__main__':
-
+    """
+    Generate training data
+    
+    """
     y0s_domain = [[-1., 1.], [-1., 1.]]
     grid_init_samples(y0s_domain, 10)
     y0s = torch.tensor(random_init_sample(y0s_domain, 1000))
 
+    """
+    Data model
+    
+    """
     input_size = 2
     size_of_hidden_layers = 32
     output_size = 2
@@ -96,14 +104,20 @@ if __name__ == '__main__':
 
         progress.set_description(f'loss: {loss.item()}')
 
-    n_training = 50
+    """
+    Validation
+    
+    """
+    y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
+    n_test = 50
     step_size = 0.01
-    x, y = generate_data(y0s, step_size, n_training)
+    x, y = generate_data(y0s, step_size, n_test)
 
-    y_pred = simulate(model, n_training, x)
+    y_pred = simulate(model, n_test, x)
     loss = F.mse_loss(y_pred, y)
     print(f'Pred loss = {loss}')
 
-    plt.scatter(y_pred.detach().numpy()[0, :, 0], y_pred.detach().numpy()[0, :, 1])
-    plt.scatter(y.numpy()[0, :, 0], y.numpy()[0, :, 1])
+    plt.plot(y_pred.detach().numpy()[:, :, 0].T, y_pred.detach().numpy()[:, :, 1].T, color='r')
+    plt.plot(y.numpy()[:, :, 0].T, y.numpy()[:, :, 1].T, color='b')
+    plt.scatter(y0s[:,0], y0s[:,1])
     plt.show()
