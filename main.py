@@ -11,8 +11,11 @@ g = torch.tensor(9.81)
 l = torch.tensor(1.)
 
 
-def grid_init_samples():
-    pass
+def grid_init_samples(domain, n_trajectories):
+    x = np.linspace(domain[0][0], domain[0][1], n_trajectories)
+    y = np.linspace(domain[1][0], domain[1][1], n_trajectories)
+
+    xx, yy = np.meshgrid(x, y)
 
 
 def random_init_sample(domain, n_trajectories):
@@ -40,7 +43,6 @@ def generate_data(y0s: torch.Tensor, step_size, n) -> (torch.Tensor, torch.Tenso
             y0s: trajectories * states
             ys: trajectories * time steps * states
     """
-    ys = []
     time_points = torch.arange(0., step_size * (n + 1), step_size)
     ys = [(odeint(f, y0, time_points)[1:]) for y0 in y0s]
     return y0s.float(), torch.stack(ys).float()
@@ -62,7 +64,9 @@ def simulate(model, t, y0s):
 
 
 if __name__ == '__main__':
+
     y0s_domain = [[-1., 1.], [-1., 1.]]
+    grid_init_samples(y0s_domain, 10)
     y0s = torch.tensor(random_init_sample(y0s_domain, 1000))
 
     input_size = 2
