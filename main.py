@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
@@ -5,7 +6,6 @@ import torch.nn.functional as F
 from smt.sampling_methods import LHS
 from torchdiffeq import odeint
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 g = torch.tensor(9.81)
 l = torch.tensor(1.)
@@ -31,22 +31,10 @@ def random_init_sample(domain, n_trajectories: int):
     return values(n_trajectories)
 
 
-def generate_data(y0s: torch.Tensor, step_size: float, n: int) -> (torch.Tensor, torch.Tensor):
-    """
-    :param y0s:
-        trajectories * states
-    :param step_size:
-        step size
-    :param n:
-        number of steps
-    :return:
-        tensors y0s, ys:
-            y0s: trajectories * states
-            ys: trajectories * time steps * states
-    """
-    time_points = torch.arange(0., step_size * (n + 1), step_size)
+def simulate_numerically(y0s: torch.Tensor, number_of_steps: int, step_size: float) -> torch.Tensor:
+    time_points = torch.arange(0., step_size * (number_of_steps + 1), step_size)
     ys = [(odeint(f, y0, time_points)[1:]) for y0 in y0s]
-    return y0s.float(), torch.stack(ys).float()
+    return torch.stack(ys).float()
 
 
 def f(t, y):
@@ -57,17 +45,19 @@ def f(t, y):
     return torch.tensor([d_theta, d_omega])
 
 
-def simulate(model, t, y0s):
+def simulate(model, y0s: torch.Tensor, number_of_steps: int) -> torch.Tensor:
     ys = [model(y0s)]
-    for tn in range(t - 1):
+    for _ in range(number_of_steps):
         ys.append(model(ys[-1]))
     return torch.swapaxes(torch.stack(ys), 0, 1)
 
-def simulate_integr(model, t, y0s, step_size):
+
+def simulate_integr(model, y0s: torch.Tensor, number_of_steps: int, step_size: float) -> torch.Tensor:
     ys = [y0s + step_size * model(y0s)]
-    for tn in range(t - 1):
+    for _ in range(number_of_steps):  #
         ys.append(ys[-1] + step_size * model(ys[-1]))
     return torch.swapaxes(torch.stack(ys), 0, 1)
+
 
 if __name__ == '__main__':
     """
@@ -92,16 +82,17 @@ if __name__ == '__main__':
         nn.Linear(size_of_hidden_layers, output_size),
     )
 
-    n_training = 1
+    number_of_steps_train = 1
     step_size = 0.01
-    x, y = generate_data(y0s, step_size, n_training)
+    x = y0s.float()
+    y = simulate_numerically(y0s, number_of_steps_train, step_size)
 
     epochs = 1000
     opt = torch.optim.Adam(model.parameters())
     progress = tqdm(range(epochs), 'Training')
     for _ in progress:
-        #y_pred = simulate(model, n_training, x)
-        y_pred = simulate_integr(model, n_training, x, step_size)
+        # y_pred = simulate(model, x, n_training)
+        y_pred = simulate_integr(model, x, number_of_steps_train, step_size)
 
         loss = F.mse_loss(y_pred, y)
         loss.backward()
@@ -115,14 +106,19 @@ if __name__ == '__main__':
     
     """
     y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
-    n_test = 50
-    step_size = 0.01
-    x, y = generate_data(y0s, step_size, n_test)
+    number_of_steps_test = 5
+    step_size = 0.1
+    x = y0s.float()
+    y = simulate_numerically(y0s, number_of_steps_test, step_size)
 
-    #y_pred = simulate(model, n_test, x)
-    y_pred = simulate_integr(model, n_test, x, step_size)
+    # y_pred = simulate(model, n_test, x)
+    y_pred = simulate_integr(model, x, number_of_steps_test, step_size)
     loss = F.mse_loss(y_pred, y)
     print(f'Pred loss = {loss}')
+
+    """
+    
+    """
 
     plt.plot(y_pred.detach().numpy()[:, :, 0].T, y_pred.detach().numpy()[:, :, 1].T, color='r')
     plt.plot(y.numpy()[:, :, 0].T, y.numpy()[:, :, 1].T, color='b')
