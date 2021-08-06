@@ -58,17 +58,17 @@ class DataModel:
         size_of_hidden_layers = 32
         output_size = 2
 
-        model = nn.Sequential(
+        net = nn.Sequential(
             nn.Linear(input_size, size_of_hidden_layers),
             nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
             nn.Linear(size_of_hidden_layers, output_size),
         )
 
         epochs = 1000
-        opt = torch.optim.Adam(model.parameters())
+        opt = torch.optim.Adam(net.parameters())
         progress = tqdm(range(epochs), 'Training')
         for _ in progress:
-            y_pred = simulate_euler(model, x, number_of_steps, step_size)
+            y_pred = simulate_euler(net, x, number_of_steps, step_size)
 
             loss = F.mse_loss(y_pred, y)
             loss.backward()
@@ -76,14 +76,14 @@ class DataModel:
             opt.zero_grad()
 
             progress.set_description(f'loss: {loss.item()}')
-        return model
+        return net
 
-    def predict(self, model: torch.nn, number_of_steps: int, step_size: float):
+    def predict(self, net: torch.nn, number_of_steps: int, step_size: float):
         y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
         x = y0s.float()
         y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
 
-        y_pred = simulate_euler(model, x, number_of_steps, step_size)
+        y_pred = simulate_euler(net, x, number_of_steps, step_size)
         # y_pred = simulate_numerically(model, x, number_of_steps_test, step_size)
         loss = F.mse_loss(y_pred, y)
         print(f'Pred loss = {loss}')
@@ -97,17 +97,17 @@ class HybridModel:
         size_of_hidden_layers = 32
         output_size = 2
 
-        model = nn.Sequential(
+        net = nn.Sequential(
             nn.Linear(input_size, size_of_hidden_layers),
             nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
             nn.Linear(size_of_hidden_layers, output_size),
         )
 
         epochs = 1000
-        opt = torch.optim.Adam(model.parameters())
+        opt = torch.optim.Adam(net.parameters())
         progress = tqdm(range(epochs), 'Training')
         for _ in progress:
-            y_pred = simulate_euler(model, x, number_of_steps, step_size)
+            y_pred = simulate_euler(net, x, number_of_steps, step_size)
 
             loss = F.mse_loss(y_pred, y)
             loss.backward()
@@ -115,14 +115,14 @@ class HybridModel:
             opt.zero_grad()
 
             progress.set_description(f'loss: {loss.item()}')
-        return model
+        return net
 
     def friction(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
         input_size = 1
         size_of_hidden_layers = 32
         output_size = 1
 
-        model = nn.Sequential(
+        net = nn.Sequential(
             nn.Linear(input_size, size_of_hidden_layers),
             nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
             nn.Linear(size_of_hidden_layers, output_size),
@@ -132,12 +132,12 @@ class HybridModel:
             theta = y[0]
             omega = y[1]
             d_theta = omega
-            d_omega = - g / l * torch.sin(theta) - model(omega.unsqueeze(dim=0))
+            d_omega = - g / l * torch.sin(theta) - net(omega.unsqueeze(dim=0))
             return torch.tensor([d_theta, d_omega])
 
         epochs = 10
-        opt = torch.optim.Adam(model.parameters())
-        progress = tqdm(range(epochs), 'Training')
+        opt = torch.optim.Adam(net.parameters())
+        progress = tqdm(range(epochs), 'Training for friction')
         for _ in progress:
             y_pred = simulate_ode(f_fric_nn, x, number_of_steps, step_size)
 
@@ -150,12 +150,12 @@ class HybridModel:
             progress.set_description(f'loss: {loss.item()}')
         return y_pred
 
-    def predict(self, model: torch.nn, number_of_steps: int, step_size: float):
+    def predict(self, net: torch.nn, number_of_steps: int, step_size: float):
         y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
         x = y0s.float()
         y = simulate_ode(f_fric, y0s, number_of_steps, step_size)
 
-        #y_pred = simulate_euler(model, x, number_of_steps, step_size)
+        #y_pred = simulate_euler(net, x, number_of_steps, step_size)
         y_pred = self.friction(x, y, number_of_steps, step_size)
         loss = F.mse_loss(y_pred, y)
         print(f'Pred loss = {loss}')
@@ -208,7 +208,7 @@ if __name__ == '__main__':
     """
     number_of_steps_test = 50
     step_size = 0.01
-    y_pred, y, y0s = model.predict(model=network, number_of_steps=number_of_steps_test, step_size=step_size)
+    y_pred, y, y0s = model.predict(net=network, number_of_steps=number_of_steps_test, step_size=step_size)
 
     """
     Plot results
