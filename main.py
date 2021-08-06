@@ -33,19 +33,19 @@ def random_init_samples(domain, n_trajectories: int):
 
 def simulate_ode(f, y0s: torch.Tensor, number_of_steps: int, step_size: float) -> torch.Tensor:
     time_points = torch.arange(0., step_size * (number_of_steps + 1), step_size)
-    ys = [(odeint(f, y0, time_points)[1:]) for y0 in y0s]
+    ys = [(odeint(f, y0, time_points)) for y0 in y0s]
     return torch.stack(ys).float()
 
 
-def simulate_direct(f, y0s: torch.Tensor, number_of_steps: int) -> torch.Tensor:
-    ys = [f(y0s)]
+def simulate_direct(g, y0s: torch.Tensor, number_of_steps: int) -> torch.Tensor:
+    ys = [y0s]
     for _ in range(number_of_steps):
-        ys.append(f(ys[-1]))
+        ys.append(g(ys[-1]))
     return torch.swapaxes(torch.stack(ys), 0, 1)
 
 
 def simulate_euler(f, y0s: torch.Tensor, number_of_steps: int, step_size: float) -> torch.Tensor:
-    ys = [y0s + step_size * f(y0s)]
+    ys = [y0s]
     for _ in range(number_of_steps):
         ys.append(ys[-1] + step_size * f(ys[-1]))
     return torch.swapaxes(torch.stack(ys), 0, 1)
@@ -56,7 +56,7 @@ if __name__ == '__main__':
     Generate training data
     
     """
-    y0s_domain = [[-1., 1.], [-1., 1.]]
+    y0s_domain = [[-1., 1.], [-2., 2.]]
     grid_init_samples(y0s_domain, 10)
     y0s = torch.tensor(random_init_samples(y0s_domain, 1000))
 
@@ -64,7 +64,16 @@ if __name__ == '__main__':
     step_size = 0.01
 
 
-    def f(t, y):
+    def f_fric(t, y):
+        def friction(w):
+            return 0.1 * w
+        theta = y[0]
+        omega = y[1]
+        d_theta = omega
+        d_omega = - g / l * torch.sin(theta) - friction(omega)
+        return torch.tensor([d_theta, d_omega])
+
+    def f_non_fric(t, y):
         theta = y[0]
         omega = y[1]
         d_theta = omega
@@ -73,7 +82,7 @@ if __name__ == '__main__':
 
 
     x = y0s.float()
-    y = simulate_ode(f, y0s, number_of_steps_train, step_size)
+    y = simulate_ode(f_fric, y0s, number_of_steps_train, step_size)
 
     """
     Data model
@@ -108,10 +117,10 @@ if __name__ == '__main__':
     
     """
     y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
-    number_of_steps_test = 5
-    step_size = 0.1
+    number_of_steps_test = 50
+    step_size = 0.01
     x = y0s.float()
-    y = simulate_ode(f, y0s, number_of_steps_test, step_size)
+    y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
 
     # y_pred = simulate(model, n_test, x)
     y_pred = simulate_euler(model, x, number_of_steps_test, step_size)
@@ -123,7 +132,9 @@ if __name__ == '__main__':
     Plot results
     
     """
-    plt.plot(y_pred.detach().numpy()[:, :, 0].T, y_pred.detach().numpy()[:, :, 1].T, color='r')
-    plt.plot(y.numpy()[:, :, 0].T, y.numpy()[:, :, 1].T, color='b')
-    plt.scatter(y0s[:, 0], y0s[:, 1])
+    plt.plot(y_pred.detach().numpy()[:, :, 1].T, y_pred.detach().numpy()[:, :, 0].T, color='r')
+    plt.plot(y.numpy()[:, :, 1].T, y.numpy()[:, :, 0].T, color='b')
+    plt.scatter(y0s[:, 1], y0s[:, 0])
+    plt.ylim(y0s_domain[0])
+    plt.xlim(y0s_domain[1])
     plt.show()
