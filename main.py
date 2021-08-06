@@ -51,6 +51,94 @@ def simulate_euler(f, y0s: torch.Tensor, number_of_steps: int, step_size: float)
     return torch.swapaxes(torch.stack(ys), 0, 1)
 
 
+class DataModel:
+
+    def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float) -> torch.nn:
+        input_size = 2
+        size_of_hidden_layers = 32
+        output_size = 2
+
+        model = nn.Sequential(
+            nn.Linear(input_size, size_of_hidden_layers),
+            nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
+            nn.Linear(size_of_hidden_layers, output_size),
+        )
+
+        epochs = 1000
+        opt = torch.optim.Adam(model.parameters())
+        progress = tqdm(range(epochs), 'Training')
+        for _ in progress:
+            y_pred = simulate_euler(model, x, number_of_steps, step_size)
+
+            loss = F.mse_loss(y_pred, y)
+            loss.backward()
+            opt.step()
+            opt.zero_grad()
+
+            progress.set_description(f'loss: {loss.item()}')
+        return model
+
+    def predict(self, model: torch.nn, number_of_steps: int, step_size: float):
+        y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
+        # number_of_steps_test = 50
+        # step_size = 0.01
+        x = y0s.float()
+        y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
+
+        y_pred = simulate_euler(model, x, number_of_steps, step_size)
+        # y_pred = simulate_numerically(model, x, number_of_steps_test, step_size)
+        loss = F.mse_loss(y_pred, y)
+        print(f'Pred loss = {loss}')
+        return y_pred, y, x
+
+
+class HybridModel:
+
+    def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float) -> torch.nn:
+        input_size = 1
+        size_of_hidden_layers = 32
+        output_size = 1
+
+        model = nn.Sequential(
+            nn.Linear(input_size, size_of_hidden_layers),
+            nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
+            nn.Linear(size_of_hidden_layers, output_size),
+        )
+
+        def f_fric_nn(t, y):
+            theta = y[0]
+            omega = y[1]
+            d_theta = omega
+            d_omega = - g / l * torch.sin(theta) - model(omega.unsqueeze(dim=0))
+            return torch.tensor([d_theta, d_omega])
+
+        epochs = 10
+        opt = torch.optim.Adam(model.parameters())
+        progress = tqdm(range(epochs), 'Training')
+        for _ in progress:
+            y_pred = simulate_ode(f_fric_nn, x, number_of_steps, step_size)
+
+            loss = F.mse_loss(y_pred, y)
+            loss.requires_grad = True
+            loss.backward()
+            opt.step()
+            opt.zero_grad()
+
+            progress.set_description(f'loss: {loss.item()}')
+        return model
+
+    def predict(self, model: torch.nn, number_of_steps: int, step_size: float):
+        y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
+        x = y0s.float()
+        y = simulate_ode(f_fric, y0s, number_of_steps, step_size)
+
+        y_pred = simulate_euler(model, x, number_of_steps, step_size)
+        #y_pred = simulate_ode(model, x, number_of_steps, step_size)
+        loss = F.mse_loss(y_pred, y)
+        print(f'Pred loss = {loss}')
+        return y_pred, y, x
+
+
 if __name__ == '__main__':
     """
     Generate training data
@@ -85,48 +173,19 @@ if __name__ == '__main__':
     y = simulate_ode(f_fric, y0s, number_of_steps_train, step_size)
 
     """
-    Data model
+    Train
     
     """
-    input_size = 2
-    size_of_hidden_layers = 32
-    output_size = 2
-
-    model = nn.Sequential(
-        nn.Linear(input_size, size_of_hidden_layers),
-        nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
-        nn.Linear(size_of_hidden_layers, output_size),
-    )
-
-    epochs = 1000
-    opt = torch.optim.Adam(model.parameters())
-    progress = tqdm(range(epochs), 'Training')
-    for _ in progress:
-        # y_pred = simulate(model, x, n_training)
-        y_pred = simulate_euler(model, x, number_of_steps_train, step_size)
-
-        loss = F.mse_loss(y_pred, y)
-        loss.backward()
-        opt.step()
-        opt.zero_grad()
-
-        progress.set_description(f'loss: {loss.item()}')
+    model = HybridModel()
+    network = model.train(x=x, y=y, number_of_steps=number_of_steps_train, step_size=step_size)
 
     """
     Validation
     
     """
-    y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
     number_of_steps_test = 50
     step_size = 0.01
-    x = y0s.float()
-    y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
-
-    # y_pred = simulate(model, n_test, x)
-    y_pred = simulate_euler(model, x, number_of_steps_test, step_size)
-    # y_pred = simulate_numerically(model, x, number_of_steps_test, step_size)
-    loss = F.mse_loss(y_pred, y)
-    print(f'Pred loss = {loss}')
+    y_pred, y, y0s = model.predict(model=network, number_of_steps=number_of_steps_test, step_size=step_size)
 
     """
     Plot results
