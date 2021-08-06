@@ -80,8 +80,6 @@ class DataModel:
 
     def predict(self, model: torch.nn, number_of_steps: int, step_size: float):
         y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
-        # number_of_steps_test = 50
-        # step_size = 0.01
         x = y0s.float()
         y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
 
@@ -95,6 +93,31 @@ class DataModel:
 class HybridModel:
 
     def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float) -> torch.nn:
+        input_size = 2
+        size_of_hidden_layers = 32
+        output_size = 2
+
+        model = nn.Sequential(
+            nn.Linear(input_size, size_of_hidden_layers),
+            nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
+            nn.Linear(size_of_hidden_layers, output_size),
+        )
+
+        epochs = 1000
+        opt = torch.optim.Adam(model.parameters())
+        progress = tqdm(range(epochs), 'Training')
+        for _ in progress:
+            y_pred = simulate_euler(model, x, number_of_steps, step_size)
+
+            loss = F.mse_loss(y_pred, y)
+            loss.backward()
+            opt.step()
+            opt.zero_grad()
+
+            progress.set_description(f'loss: {loss.item()}')
+        return model
+
+    def friction(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
         input_size = 1
         size_of_hidden_layers = 32
         output_size = 1
@@ -125,15 +148,15 @@ class HybridModel:
             opt.zero_grad()
 
             progress.set_description(f'loss: {loss.item()}')
-        return model
+        return y_pred
 
     def predict(self, model: torch.nn, number_of_steps: int, step_size: float):
         y0s = torch.tensor(grid_init_samples(y0s_domain, 10))
         x = y0s.float()
         y = simulate_ode(f_fric, y0s, number_of_steps, step_size)
 
-        y_pred = simulate_euler(model, x, number_of_steps, step_size)
-        #y_pred = simulate_ode(model, x, number_of_steps, step_size)
+        #y_pred = simulate_euler(model, x, number_of_steps, step_size)
+        y_pred = self.friction(x, y, number_of_steps, step_size)
         loss = F.mse_loss(y_pred, y)
         print(f'Pred loss = {loss}')
         return y_pred, y, x
