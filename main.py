@@ -65,18 +65,23 @@ class DataModel:
         )
         self.opt = torch.optim.Adam(self.net.parameters())
 
+        self.type = "Data Model"
+
     def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 1000
+        epochs = 120
         progress = tqdm(range(epochs), 'Training')
+        mses = []
         for _ in progress:
             y_pred = simulate_euler(self.net, x, number_of_steps, step_size)
 
             loss = F.mse_loss(y_pred, y)
+            mses.append(loss.detach().numpy())
             loss.backward()
             self.opt.step()
             self.opt.zero_grad()
 
             progress.set_description(f'loss: {loss.item()}')
+        return mses
 
     def predict(self, y0s, number_of_steps: int, step_size: float):
         y_pred = simulate_euler(self.net, y0s, number_of_steps, step_size)
@@ -98,6 +103,8 @@ class HybridModel:
 
         self.opt = torch.optim.Adam(self.net.parameters())
 
+        self.type = "Hybrid Model"
+
         def f_fric_nn(t, y):
             theta = y[0]
             omega = y[1]
@@ -110,16 +117,19 @@ class HybridModel:
     def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
         epochs = 10
         progress = tqdm(range(epochs), 'Training for friction')
+        mses = []
         for _ in progress:
             y_pred = simulate_ode(self.func, x, number_of_steps, step_size)
 
+            y_pred.requires_grad = True
             loss = F.mse_loss(y_pred, y)
-            loss.requires_grad = True
+            mses.append(loss.detach().numpy())
             loss.backward()
             self.opt.step()
             self.opt.zero_grad()
 
             progress.set_description(f'loss: {loss.item()}')
+        return mses
 
     def predict(self, y0s, number_of_steps: int, step_size: float):
         y_pred = simulate_ode(self.func, y0s, number_of_steps, step_size)
@@ -133,7 +143,7 @@ if __name__ == '__main__':
     """
     y0s_domain = [[-1., 1.], [-2., 2.]]
     grid_init_samples(y0s_domain, 10)
-    y0s = torch.tensor(random_init_samples(y0s_domain, 1000)).float()
+    y0s_init = torch.tensor(random_init_samples(y0s_domain, 1000)).float()
 
     number_of_steps_train = 1
     step_size = 0.01
@@ -155,37 +165,56 @@ if __name__ == '__main__':
         d_omega = - g / l * torch.sin(theta)
         return torch.tensor([d_theta, d_omega])
 
-    y = simulate_ode(f_fric, y0s, number_of_steps_train, step_size)
+    y_init = simulate_ode(f_fric, y0s_init, number_of_steps_train, step_size)
 
     """
     Train
     
     """
-    model = HybridModel()
-    model.train(x=y0s, y=y, number_of_steps=number_of_steps_train, step_size=step_size)
+    models = []
+    mses = []
+    models.append(HybridModel())
+    models.append(DataModel())
+
+    for model in models:
+
+        mse = model.train(x=y0s_init, y=y_init, number_of_steps=number_of_steps_train, step_size=step_size)
+        mses.append(mse)
+
+        """
+        Validation
+        
+        """
+        number_of_steps_test = 50
+        step_size = 0.01
+
+        y0s = torch.tensor(grid_init_samples(y0s_domain, 10)).float()
+        y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
+
+        y_pred = model.predict(y0s, number_of_steps=number_of_steps_test, step_size=step_size)
+
+        loss = F.mse_loss(y_pred, y)
+        print(f'Pred loss = {loss} with a {model.type}')
+
+        """
+        Plot results
+        
+        """
+        #plt.plot(y_pred.detach().numpy()[:, :, 1].T, y_pred.detach().numpy()[:, :, 0].T, color='r')
+        #plt.plot(y.numpy()[:, :, 1].T, y.numpy()[:, :, 0].T, color='b')
+        #plt.scatter(y0s[:, 1], y0s[:, 0])
+        #plt.ylim(y0s_domain[0])
+        #plt.xlim(y0s_domain[1])
+        #plt.show()
 
     """
-    Validation
-    
-    """
-    number_of_steps_test = 50
-    step_size = 0.01
-
-    y0s = torch.tensor(grid_init_samples(y0s_domain, 10)).float()
-    y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
-
-    y_pred = model.predict(y0s, number_of_steps=number_of_steps_test, step_size=step_size)
-
-    loss = F.mse_loss(y_pred, y)
-    print(f'Pred loss = {loss}')
+    Plot mse
 
     """
-    Plot results
-    
-    """
-    plt.plot(y_pred.detach().numpy()[:, :, 1].T, y_pred.detach().numpy()[:, :, 0].T, color='r')
-    plt.plot(y.numpy()[:, :, 1].T, y.numpy()[:, :, 0].T, color='b')
-    plt.scatter(y0s[:, 1], y0s[:, 0])
-    plt.ylim(y0s_domain[0])
-    plt.xlim(y0s_domain[1])
+
+    plt.plot(mses[0], color='r')
+    plt.plot(mses[1], color='b')
+    plt.ylabel("MSE")
+    plt.xlabel("Epochs")
     plt.show()
+
