@@ -68,7 +68,7 @@ class DataModel:
         self.type = "Data Model"
 
     def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 120
+        epochs = 2000
         progress = tqdm(range(epochs), 'Training')
         mses = []
         for _ in progress:
@@ -96,32 +96,33 @@ class HybridModel:
         output_size = 1
 
         self.net = nn.Sequential(
-            nn.Linear(input_size, size_of_hidden_layers),
-            nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
-            nn.Linear(size_of_hidden_layers, output_size),
+            nn.Linear(input_size, output_size),
+            #nn.Linear(input_size, size_of_hidden_layers),
+            # nn.Softplus(),
+            # nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
+            # nn.Softplus(),
+            # nn.Linear(size_of_hidden_layers, output_size),
         )
-
         self.opt = torch.optim.Adam(self.net.parameters())
 
         self.type = "Hybrid Model"
 
-        def f_fric_nn(t, y):
-            theta = y[0]
-            omega = y[1]
+        def f_fric_nn(y):
+            theta = y[:, 0]
+            omega = y[:, 1]
             d_theta = omega
-            d_omega = - g / l * torch.sin(theta) - self.net(omega.unsqueeze(dim=0))
-            return torch.tensor([d_theta, d_omega])
+            d_omega = - g / l * torch.sin(theta) - self.net(omega.unsqueeze(dim=1)).squeeze()
+            return torch.stack([d_theta, d_omega]).T
 
         self.func = f_fric_nn
 
     def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 10
+        epochs = 2000
         progress = tqdm(range(epochs), 'Training for friction')
         mses = []
         for _ in progress:
-            y_pred = simulate_ode(self.func, x, number_of_steps, step_size)
+            y_pred = simulate_euler(self.func, x, number_of_steps, step_size)
 
-            y_pred.requires_grad = True
             loss = F.mse_loss(y_pred, y)
             mses.append(loss.detach().numpy())
             loss.backward()
@@ -132,7 +133,7 @@ class HybridModel:
         return mses
 
     def predict(self, y0s, number_of_steps: int, step_size: float):
-        y_pred = simulate_ode(self.func, y0s, number_of_steps, step_size)
+        y_pred = simulate_euler(self.func, y0s, number_of_steps, step_size)
         return y_pred
 
 
@@ -141,17 +142,16 @@ if __name__ == '__main__':
     Generate training data
     
     """
-    y0s_domain = [[-1., 1.], [-2., 2.]]
-    grid_init_samples(y0s_domain, 10)
+    y0s_domain = [[-1., 1.], [-1., 1.]]
     y0s_init = torch.tensor(random_init_samples(y0s_domain, 1000)).float()
 
     number_of_steps_train = 1
-    step_size = 0.01
+    step_size = 0.001
 
 
     def f_fric(t, y):
         def friction(w):
-            return 0.1 * w
+            return 0.2 * w
         theta = y[0]
         omega = y[1]
         d_theta = omega
@@ -185,8 +185,8 @@ if __name__ == '__main__':
         Validation
         
         """
-        number_of_steps_test = 50
-        step_size = 0.01
+        number_of_steps_test = 100
+        step_size = 0.001
 
         y0s = torch.tensor(grid_init_samples(y0s_domain, 10)).float()
         y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
@@ -200,12 +200,14 @@ if __name__ == '__main__':
         Plot results
         
         """
-        #plt.plot(y_pred.detach().numpy()[:, :, 1].T, y_pred.detach().numpy()[:, :, 0].T, color='r')
-        #plt.plot(y.numpy()[:, :, 1].T, y.numpy()[:, :, 0].T, color='b')
-        #plt.scatter(y0s[:, 1], y0s[:, 0])
-        #plt.ylim(y0s_domain[0])
-        #plt.xlim(y0s_domain[1])
-        #plt.show()
+        plt.plot(y_pred.detach().numpy()[:, :, 1].T, y_pred.detach().numpy()[:, :, 0].T, color='r')
+        plt.plot(y.numpy()[:, :, 1].T, y.numpy()[:, :, 0].T, color='b')
+        plt.scatter(y0s[:, 1], y0s[:, 0])
+        plt.ylim(y0s_domain[0])
+        plt.xlim(y0s_domain[1])
+        plt.show()
+
+        print([param for param in model.net.parameters()])
 
     """
     Plot mse
