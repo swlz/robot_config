@@ -12,7 +12,7 @@ g = torch.tensor(1.)
 l = torch.tensor(1.)
 
 
-def grid_init_samples(domain, n_trajectories: int):
+def grid_init_samples(domain, n_trajectories: int) -> np.ndarray:
     """
     :param domain:
         theta min / max
@@ -27,7 +27,7 @@ def grid_init_samples(domain, n_trajectories: int):
     return np.concatenate((xx.flatten()[..., np.newaxis], yy.flatten()[..., np.newaxis]), axis=1)
 
 
-def random_init_samples(domain, n_trajectories: int):
+def random_init_samples(domain, n_trajectories: int) -> np.ndarray:
     """
     :param domain:
         theta min / max
@@ -76,13 +76,12 @@ class DataModel:
 
         self.type = self.__class__.__name__
 
-    def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 2
+    def train(self, y0s: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
+        epochs = 200
         progress = tqdm(range(epochs), 'Training')
         mses = []
         for _ in progress:
-            y_pred = simulate_ode(lambda t, y: self.net(
-                y), x, number_of_steps, step_size)
+            y_pred = simulate_ode(lambda t, y: self.net(y), y0s, number_of_steps, step_size)
 
             loss = F.mse_loss(y_pred, y)
             mses.append(loss.detach().numpy())
@@ -94,8 +93,7 @@ class DataModel:
         return mses
 
     def predict(self, y0s, number_of_steps: int, step_size: float):
-        y_pred = simulate_ode(lambda t, y: self.net(
-            y), y0s, number_of_steps, step_size)
+        y_pred = simulate_ode(lambda t, y: self.net(y), y0s, number_of_steps, step_size)
         return y_pred
 
 
@@ -113,7 +111,7 @@ class HybridModel:
 
         self.type = self.__class__.__name__
 
-        def f_fric_nn(y):
+        def f_fric_nn(t, y):
             theta = y[0]
             omega = y[1]
             d_theta = omega
@@ -122,13 +120,12 @@ class HybridModel:
 
         self.func = f_fric_nn
 
-    def train(self, x: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 2
+    def train(self, y0s: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
+        epochs = 200
         progress = tqdm(range(epochs), 'Training for friction')
         mses = []
         for _ in progress:
-            y_pred = simulate_ode(lambda t, y: self.func(
-                y), x, number_of_steps, step_size)
+            y_pred = simulate_ode(self.func, y0s, number_of_steps, step_size)
 
             loss = F.mse_loss(y_pred, y)
             mses.append(loss.detach().numpy())
@@ -140,12 +137,12 @@ class HybridModel:
         return mses
 
     def predict(self, y0s, number_of_steps: int, step_size: float):
-        y_pred = simulate_ode(lambda t, y: self.func(
-            y), y0s, number_of_steps, step_size)
+        y_pred = simulate_ode(self.func, y0s, number_of_steps, step_size)
         return y_pred
 
 
-if __name__ == '__main__':
+def train():
+
     """
     Generate training data
 
@@ -186,7 +183,7 @@ if __name__ == '__main__':
     for model in models:
 
         mse = model.train(
-            x=y0s_init, y=y_init, number_of_steps=number_of_steps_train, step_size=step_size)
+            y0s=y0s_init, y=y_init, number_of_steps=number_of_steps_train, step_size=step_size)
 
         mses[model.type] = mse
 
@@ -211,7 +208,7 @@ if __name__ == '__main__':
 
         """
         plt.plot(y_pred.detach().numpy()[
-                 :, :, 1].T, y_pred.detach().numpy()[:, :, 0].T, color='r')
+                :, :, 1].T, y_pred.detach().numpy()[:, :, 0].T, color='r')
         plt.plot(y.numpy()[:, :, 1].T, y.numpy()[:, :, 0].T, color='b')
         plt.scatter(y0s[:, 1], y0s[:, 0])
         plt.ylim(y0s_domain[0])
@@ -231,3 +228,6 @@ if __name__ == '__main__':
     plt.xlabel("Epochs")
     plt.legend()
     plt.show()
+
+if __name__ == '__main__':
+    train()
