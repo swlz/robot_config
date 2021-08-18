@@ -1,15 +1,14 @@
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from smt.sampling_methods import LHS
-from torchdiffeq import odeint
+from torchdiffeq._impl.fixed_grid import RK4
+from torchdyn.numerics import odeint
 from tqdm import tqdm
-
-g = torch.tensor(1.)
-l = torch.tensor(1.)
 
 
 def grid_init_samples(domain, n_trajectories: int) -> np.ndarray:
@@ -39,25 +38,18 @@ def random_init_samples(domain, n_trajectories: int) -> np.ndarray:
     return values(n_trajectories)
 
 
-def simulate_ode(f, y0s: torch.Tensor, number_of_steps: int, step_size: float) -> torch.Tensor:
+def simulate_ode(f, solver, y0s: torch.Tensor, number_of_steps: int, step_size: float) -> torch.Tensor:
     time_points = torch.arange(
         0., step_size * (number_of_steps + 1), step_size)
-    ys = [(odeint(f, y0, time_points)) for y0 in y0s]
-    return torch.stack(ys).float()
+    t_eval, ys = odeint(f, y0s, time_points, solver=solver)
+    return ys
 
 
 def simulate_direct(g, y0s: torch.Tensor, number_of_steps: int) -> torch.Tensor:
     ys = [y0s]
     for _ in range(number_of_steps):
         ys.append(g(ys[-1]))
-    return torch.swapaxes(torch.stack(ys), 0, 1)
-
-
-def simulate_euler(f, y0s: torch.Tensor, number_of_steps: int, step_size: float) -> torch.Tensor:
-    ys = [y0s]
-    for _ in range(number_of_steps):
-        ys.append(ys[-1] + step_size * f(ys[-1]))
-    return torch.swapaxes(torch.stack(ys), 0, 1)
+    return torch.stack(ys, dim=1)
 
 
 class DataModel:
@@ -75,13 +67,14 @@ class DataModel:
         self.opt = torch.optim.Adam(self.net.parameters())
 
         self.type = self.__class__.__name__
+        self.solver = 'rk4'
 
     def train(self, y0s: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 200
+        epochs = 1000
         progress = tqdm(range(epochs), 'Training')
         mses = []
         for _ in progress:
-            y_pred = simulate_ode(lambda t, y: self.net(y), y0s, number_of_steps, step_size)
+            y_pred = simulate_ode(lambda t, y: self.net(y), self.solver, y0s, number_of_steps, step_size)
 
             loss = F.mse_loss(y_pred, y)
             mses.append(loss.detach().numpy())
@@ -93,8 +86,12 @@ class DataModel:
         return mses
 
     def predict(self, y0s, number_of_steps: int, step_size: float):
-        y_pred = simulate_ode(lambda t, y: self.net(y), y0s, number_of_steps, step_size)
+        y_pred = simulate_ode(lambda t, y: self.net(y), self.solver, y0s, number_of_steps, step_size)
         return y_pred
+
+    def evaluate(self, y):
+        derivatives = self.net(y)
+        return derivatives
 
 
 class HybridModel:
@@ -103,29 +100,37 @@ class HybridModel:
         input_size = 2
         size_of_hidden_layers = 32
         output_size = 1
+        self.l = torch.tensor(1., requires_grad=True)
+        self.g = torch.tensor(1.)
 
         self.net = nn.Sequential(
             nn.Linear(input_size, output_size),
         )
-        self.opt = torch.optim.Adam(self.net.parameters())
+        #param = list(self.net.parameters()) + [self.l]
+        param = self.net.parameters()
+        #self.opt = torch.optim.AdamW([self.l], lr=0.01)
+        self.opt = torch.optim.AdamW(param)
 
         self.type = self.__class__.__name__
+        self.solver = 'rk4'
 
         def f_fric_nn(t, y):
-            theta = y[0]
-            omega = y[1]
+            theta = y[..., 0]
+            omega = y[..., 1]
             d_theta = omega
-            d_omega = - g / l * torch.sin(theta) - self.net(y).squeeze()
+            d_omega = - self.g / self.l * torch.sin(theta) - self.net(y).squeeze()
             return torch.stack([d_theta, d_omega]).T
 
         self.func = f_fric_nn
 
     def train(self, y0s: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 200
+        epochs = 1000
         progress = tqdm(range(epochs), 'Training for friction')
         mses = []
+        ls = []
         for _ in progress:
-            y_pred = simulate_ode(self.func, y0s, number_of_steps, step_size)
+            y_pred = simulate_ode(self.func, self.solver, y0s, number_of_steps, step_size)
+            ls.append(self.l.item())
 
             loss = F.mse_loss(y_pred, y)
             mses.append(loss.detach().numpy())
@@ -134,11 +139,15 @@ class HybridModel:
             self.opt.zero_grad()
 
             progress.set_description(f'loss: {loss.item()}')
-        return mses
+        return mses#, ls
 
     def predict(self, y0s, number_of_steps: int, step_size: float):
-        y_pred = simulate_ode(self.func, y0s, number_of_steps, step_size)
+        y_pred = simulate_ode(self.func, self.solver, y0s, number_of_steps, step_size)
         return y_pred
+
+    def evaluate(self, y):
+        derivatives = self.func(0.0, y)
+        return derivatives
 
 
 def train():
@@ -149,27 +158,49 @@ def train():
     """
     y0s_domain = [[-1., 1.], [-1., 1.]]
     y0s_init = torch.tensor(random_init_samples(y0s_domain, 100)).float()
+    # plt.scatter(y0s_init[:, 1], y0s_init[:, 0], color="green")
+    # plt.ylabel("$\omega$", rotation=0)
+    # plt.xlabel("$\\theta$")
+    # plt.show()
 
     number_of_steps_train = 1
     step_size = 0.001
 
+    # k = np.linspace(y0s_domain[0][0], y0s_domain[0][1], 10)
+    # m = np.linspace(y0s_domain[1][0], y0s_domain[1][1], 10)
+    #
+    # xx, yy = np.meshgrid(k, m)
+    #
+    # theta = xx
+    # omega = yy
+    # d_theta = omega
+    # d_omega = - g / l * np.sin(theta) - (0.2 * omega)
+    # plt.streamplot(xx, yy, d_theta, d_omega, color="green")
+    # plt.ylabel("$\omega$",rotation=0)
+    # plt.xlabel("$\\theta$")
+    # plt.show()
+
     def f_fric(t, y):
+        g = torch.tensor(1.)
+        l = torch.tensor(1.)
         def friction(w):
             return 0.2 * w
-        theta = y[0]
-        omega = y[1]
+        theta = y[..., 0]
+        omega = y[..., 1]
         d_theta = omega
         d_omega = - g / l * torch.sin(theta) - friction(omega)
-        return torch.tensor([d_theta, d_omega])
+        return torch.stack([d_theta, d_omega], dim=1)
 
     def f_non_fric(t, y):
+        g = torch.tensor(1.)
+        l = torch.tensor(1.)
         theta = y[0]
         omega = y[1]
         d_theta = omega
         d_omega = - g / l * torch.sin(theta)
-        return torch.tensor([d_theta, d_omega])
+        return torch.stack([d_theta, d_omega], dim=1)
 
-    y_init = simulate_ode(f_fric, y0s_init, number_of_steps_train, step_size)
+    y_init = simulate_ode(f_fric, 'rk4', y0s_init, number_of_steps_train, step_size)
 
     """
     Train
@@ -184,6 +215,8 @@ def train():
 
         mse = model.train(
             y0s=y0s_init, y=y_init, number_of_steps=number_of_steps_train, step_size=step_size)
+        #plt.plot(ls, color="green")
+        #plt.show()
 
         mses[model.type] = mse
 
@@ -195,7 +228,11 @@ def train():
         step_size = 0.001
 
         y0s = torch.tensor(grid_init_samples(y0s_domain, 10)).float()
-        y = simulate_ode(f_fric, y0s, number_of_steps_test, step_size)
+        y = simulate_ode(f_fric, 'rk4', y0s, number_of_steps_test, step_size)
+        # plt.scatter(y0s[:, 1], y0s[:, 0], color="green")
+        # plt.ylabel("$\omega$", rotation=0)
+        # plt.xlabel("$\\theta$")
+        # plt.show()
 
         y_pred = model.predict(
             y0s, number_of_steps=number_of_steps_test, step_size=step_size)
@@ -204,12 +241,18 @@ def train():
         print(f'Pred loss = {loss} with a {model.type}')
 
         """
+        Heat Map
+        """
+        #deriv = model.evaluate(y_pred)
+        #sns.heatmap(y - deriv)
+
+        """
         Plot results
 
         """
         plt.plot(y_pred.detach().numpy()[
-                :, :, 1].T, y_pred.detach().numpy()[:, :, 0].T, color='r')
-        plt.plot(y.numpy()[:, :, 1].T, y.numpy()[:, :, 0].T, color='b')
+                :, :, 1], y_pred.detach().numpy()[:, :, 0], color='r')
+        plt.plot(y.numpy()[:, :, 1], y.numpy()[:, :, 0], color='b')
         plt.scatter(y0s[:, 1], y0s[:, 0])
         plt.ylim(y0s_domain[0])
         plt.xlim(y0s_domain[1])
