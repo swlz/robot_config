@@ -64,7 +64,7 @@ class DataModel:
             nn.Linear(size_of_hidden_layers, size_of_hidden_layers),
             nn.Linear(size_of_hidden_layers, output_size),
         )
-        self.opt = torch.optim.Adam(self.net.parameters())
+        self.opt = torch.optim.AdamW(self.net.parameters())
 
         self.type = self.__class__.__name__
         self.solver = 'rk4'
@@ -90,8 +90,7 @@ class DataModel:
         return y_pred
 
     def evaluate(self, y):
-        derivatives = self.net(y)
-        return derivatives
+        return self.net(y)
 
 
 class HybridModel:
@@ -146,8 +145,7 @@ class HybridModel:
         return y_pred
 
     def evaluate(self, y):
-        derivatives = self.func(0.0, y)
-        return derivatives
+        return self.func(0.0, y)
 
 
 def train():
@@ -243,20 +241,44 @@ def train():
         """
         Heat Map
         """
-        #deriv = model.evaluate(y_pred)
-        #sns.heatmap(y - deriv)
+
+        number_of_steps_test = 1
+        step_size = 0.001
+
+        y0s = torch.tensor(grid_init_samples(y0s_domain, 100)).float()
+        y = simulate_ode(f_fric, 'rk4', y0s, number_of_steps_test, step_size)
+        y_deriv = f_fric(0.0, y[1])
+        # plt.scatter(y0s[:, 1], y0s[:, 0], color="green")
+        # plt.ylabel("$\omega$", rotation=0)
+        # plt.xlabel("$\\theta$")
+        # plt.show()
+
+        y_pred = model.predict(
+            y0s, number_of_steps=number_of_steps_test, step_size=step_size)
+
+        y_pred_deriv = model.evaluate(y_pred[1])
+        error = []
+        for index, derivs in enumerate(y_deriv):
+            error.append(F.mse_loss(y_pred_deriv[index], derivs).detach().numpy())
+        
+        error = np.array(error)
+        error = np.reshape(error, (100, 100))
+
+        ax = sns.heatmap(error)
+        ax.invert_yaxis()
+        plt.show()
 
         """
         Plot results
 
         """
-        plt.plot(y_pred.detach().numpy()[
-                :, :, 1], y_pred.detach().numpy()[:, :, 0], color='r')
-        plt.plot(y.numpy()[:, :, 1], y.numpy()[:, :, 0], color='b')
-        plt.scatter(y0s[:, 1], y0s[:, 0])
-        plt.ylim(y0s_domain[0])
-        plt.xlim(y0s_domain[1])
-        plt.show()
+        # plt.plot(y_pred.detach().numpy()[
+        #         :, :, 1], y_pred.detach().numpy()[:, :, 0], color='r')
+        # plt.plot(y.numpy()[:, :, 1], y.numpy()[:, :, 0], color='b')
+        # plt.scatter(y0s[:, 1], y0s[:, 0])
+        # plt.ylim(y0s_domain[0])
+        # plt.xlim(y0s_domain[1])
+        # plt.show()
 
         # for name, param in model.net.named_parameters():
         #     print(f"{name}: {param}")
