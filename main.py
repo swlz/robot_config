@@ -156,7 +156,7 @@ def train():
     """
     y0s_domain = [[-1., 1.], [-1., 1.]]
     y0s_init = torch.tensor(random_init_samples(y0s_domain, 100)).float()
-    # plt.scatter(y0s_init[:, 1], y0s_init[:, 0], color="green")
+    # plt.scatter(y0s_init[:, 0], y0s_init[:, 1], color="green")
     # plt.ylabel("$\omega$", rotation=0)
     # plt.xlabel("$\\theta$")
     # plt.show()
@@ -227,7 +227,7 @@ def train():
 
         y0s = torch.tensor(grid_init_samples(y0s_domain, 10)).float()
         y = simulate_ode(f_fric, 'rk4', y0s, number_of_steps_test, step_size)
-        # plt.scatter(y0s[:, 1], y0s[:, 0], color="green")
+        # plt.scatter(y0s[:, 0], y0s[:, 1], color="green")
         # plt.ylabel("$\omega$", rotation=0)
         # plt.xlabel("$\\theta$")
         # plt.show()
@@ -248,7 +248,7 @@ def train():
         y0s = torch.tensor(grid_init_samples(y0s_domain, 100)).float()
         y = simulate_ode(f_fric, 'rk4', y0s, number_of_steps_test, step_size)
         y_deriv = f_fric(0.0, y[1])
-        # plt.scatter(y0s[:, 1], y0s[:, 0], color="green")
+        # plt.scatter(y0s[:, 0], y0s[:, 1], color="green")
         # plt.ylabel("$\omega$", rotation=0)
         # plt.xlabel("$\\theta$")
         # plt.show()
@@ -264,8 +264,15 @@ def train():
         error = np.array(error)
         error = np.reshape(error, (100, 100))
 
-        ax = sns.heatmap(error)
-        ax.invert_yaxis()
+        
+        x_grid = np.reshape(y0s[:, 0].detach().numpy(), (100, 100))
+        y_grid = np.reshape(y0s[:, 1].detach().numpy(), (100, 100))
+        im = plt.pcolormesh(x_grid, y_grid, error, shading="gouraud", rasterized=True)
+        plt.scatter(y0s_init[:, 0], y0s_init[:, 1], color="white", label="initial points", marker = "x")
+        plt.ylabel("$\omega$", rotation=0)
+        plt.xlabel("$\\theta$")
+        plt.colorbar(im)
+        plt.legend()
         plt.show()
 
         """
