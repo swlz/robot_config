@@ -51,6 +51,70 @@ def simulate_direct(g, y0s: torch.Tensor, number_of_steps: int) -> torch.Tensor:
         ys.append(g(ys[-1]))
     return torch.stack(ys, dim=1)
 
+# class PINN(nn.Module):
+
+#     def __init__(self):
+#         super().__init__()
+#         # define network
+#         # self.
+#         input_size = 2
+#         size_of_hidden_layers = 32
+#         output_size = 1
+
+#         self.input = nn.Linear(input_size, size_of_hidden_layers)
+#         self.hidden = nn.Linear(size_of_hidden_layers, size_of_hidden_layers)
+#         self.output = nn.Linear(size_of_hidden_layers, output_size)
+
+
+#     def forward(self, x):
+#         def diff(theta):
+#             l = torch.tensor(1.)
+#             g = torch.tensor(1.)
+#             return (- g / l * torch.sin(theta))
+#         # self.input(x)
+#         # ...
+#         # theta = self.out(y)
+#         # omega = tf.diff(theta)
+#         # return tf.cat(theta, omega, dim=?)
+#         x = self.input(x)
+#         x = self.hidden(x)
+#         d_theta = self.output(x)
+#         #d_omega = diff(d_theta)
+#         d_omega = torch.autograd.grad(d_theta)
+#         return torch.cat([d_theta, d_omega], dim=1)
+
+
+# class PhysicsInformedModel:
+
+#     def __init__(self):
+#         self.net = PINN()
+#         self.opt = torch.optim.AdamW(self.net.parameters())
+
+#         self.type = self.__class__.__name__
+#         self.solver = 'rk4'
+
+#     def train(self, y0s: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
+#         epochs = 1000
+#         progress = tqdm(range(epochs), 'Training')
+#         mses = []
+#         for _ in progress:
+#             y_pred = simulate_ode(lambda t, y: self.net(y), self.solver, y0s, number_of_steps, step_size)
+
+#             loss = F.mse_loss(y_pred, y)
+#             mses.append(loss.detach().numpy())
+#             loss.backward()
+#             self.opt.step()
+#             self.opt.zero_grad()
+
+#             progress.set_description(f'loss: {loss.item()}')
+#         return mses
+
+#     def predict(self, y0s, number_of_steps: int, step_size: float):
+#         y_pred = simulate_ode(lambda t, y: self.net(y), self.solver, y0s, number_of_steps, step_size)
+#         return y_pred
+
+#     def evaluate(self, y):
+#         return self.net(y)
 
 class DataModel:
 
@@ -70,7 +134,7 @@ class DataModel:
         self.solver = 'rk4'
 
     def train(self, y0s: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 1000
+        epochs = 3000
         progress = tqdm(range(epochs), 'Training')
         mses = []
         for _ in progress:
@@ -123,7 +187,7 @@ class HybridModel:
         self.func = f_fric_nn
 
     def train(self, y0s: torch.Tensor, y: torch.Tensor, number_of_steps: int, step_size: float):
-        epochs = 1000
+        epochs = 3000
         progress = tqdm(range(epochs), 'Training for friction')
         mses = []
         ls = []
@@ -181,12 +245,20 @@ def train():
     def f_fric(t, y):
         g = torch.tensor(1.)
         l = torch.tensor(1.)
-        def friction(w):
+        def friction_coef(w):
             return 0.2 * w
+        def friction_sin(w):
+            return torch.sin(w)
+        def friction_quadratic(w):
+            return w ** 2
+        def friction_cubic(w):
+            return w ** 3
+        def friction_gauss(w):
+            return torch.normal(1, 1, size=w.size())
         theta = y[..., 0]
         omega = y[..., 1]
         d_theta = omega
-        d_omega = - g / l * torch.sin(theta) - friction(omega)
+        d_omega = - g / l * torch.sin(theta) - friction_gauss(omega)
         return torch.stack([d_theta, d_omega], dim=1)
 
     def f_non_fric(t, y):
@@ -208,6 +280,7 @@ def train():
     mses = {}
     models.append(HybridModel())
     models.append(DataModel())
+    #models.append(PhysicsInformedModel())
 
     for model in models:
 
@@ -242,50 +315,50 @@ def train():
         Heat Map
         """
 
-        number_of_steps_test = 1
-        step_size = 0.001
+        # number_of_steps_test = 1
+        # step_size = 0.001
 
-        y0s = torch.tensor(grid_init_samples(y0s_domain, 100)).float()
-        y = simulate_ode(f_fric, 'rk4', y0s, number_of_steps_test, step_size)
-        y_deriv = f_fric(0.0, y[1])
-        # plt.scatter(y0s[:, 0], y0s[:, 1], color="green")
+        # y0s = torch.tensor(grid_init_samples(y0s_domain, 100)).float()
+        # y = simulate_ode(f_fric, 'rk4', y0s, number_of_steps_test, step_size)
+        # y_deriv = f_fric(0.0, y[1])
+        # # plt.scatter(y0s[:, 0], y0s[:, 1], color="green")
+        # # plt.ylabel("$\omega$", rotation=0)
+        # # plt.xlabel("$\\theta$")
+        # # plt.show()
+
+        # y_pred = model.predict(
+        #     y0s, number_of_steps=number_of_steps_test, step_size=step_size)
+
+        # y_pred_deriv = model.evaluate(y_pred[1])
+        # error = []
+        # for index, derivs in enumerate(y_deriv):
+        #     error.append(F.mse_loss(y_pred_deriv[index], derivs).detach().numpy())
+        
+        # error = np.array(error)
+        # error = np.reshape(error, (100, 100))
+
+        
+        # x_grid = np.reshape(y0s[:, 0].detach().numpy(), (100, 100))
+        # y_grid = np.reshape(y0s[:, 1].detach().numpy(), (100, 100))
+        # im = plt.pcolormesh(x_grid, y_grid, error, shading="gouraud", rasterized=True)
+        # plt.scatter(y0s_init[:, 0], y0s_init[:, 1], color="white", label="initial points", marker = "x")
         # plt.ylabel("$\omega$", rotation=0)
         # plt.xlabel("$\\theta$")
+        # plt.colorbar(im)
+        # plt.legend()
         # plt.show()
-
-        y_pred = model.predict(
-            y0s, number_of_steps=number_of_steps_test, step_size=step_size)
-
-        y_pred_deriv = model.evaluate(y_pred[1])
-        error = []
-        for index, derivs in enumerate(y_deriv):
-            error.append(F.mse_loss(y_pred_deriv[index], derivs).detach().numpy())
-        
-        error = np.array(error)
-        error = np.reshape(error, (100, 100))
-
-        
-        x_grid = np.reshape(y0s[:, 0].detach().numpy(), (100, 100))
-        y_grid = np.reshape(y0s[:, 1].detach().numpy(), (100, 100))
-        im = plt.pcolormesh(x_grid, y_grid, error, shading="gouraud", rasterized=True)
-        plt.scatter(y0s_init[:, 0], y0s_init[:, 1], color="white", label="initial points", marker = "x")
-        plt.ylabel("$\omega$", rotation=0)
-        plt.xlabel("$\\theta$")
-        plt.colorbar(im)
-        plt.legend()
-        plt.show()
 
         """
         Plot results
 
         """
-        # plt.plot(y_pred.detach().numpy()[
-        #         :, :, 1], y_pred.detach().numpy()[:, :, 0], color='r')
-        # plt.plot(y.numpy()[:, :, 1], y.numpy()[:, :, 0], color='b')
-        # plt.scatter(y0s[:, 1], y0s[:, 0])
-        # plt.ylim(y0s_domain[0])
-        # plt.xlim(y0s_domain[1])
-        # plt.show()
+        plt.plot(y_pred.detach().numpy()[
+                :, :, 1], y_pred.detach().numpy()[:, :, 0], color='r')
+        plt.plot(y.numpy()[:, :, 1], y.numpy()[:, :, 0], color='b')
+        plt.scatter(y0s[:, 1], y0s[:, 0])
+        plt.ylim(y0s_domain[0])
+        plt.xlim(y0s_domain[1])
+        plt.show()
 
         # for name, param in model.net.named_parameters():
         #     print(f"{name}: {param}")
