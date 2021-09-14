@@ -8,8 +8,8 @@ from smt.sampling_methods import LHS
 from torchdiffeq._impl.fixed_grid import RK4
 from torchdyn.numerics import odeint
 from tqdm import tqdm
-import HybridModel as HM
-import DataModel as DM
+import models.HybridModel as HM
+import models.DataModel as DM
 
 def grid_init_samples(domain, n_trajectories: int) -> np.ndarray:
     """
